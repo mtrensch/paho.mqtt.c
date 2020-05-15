@@ -20,6 +20,7 @@
 #define LINKEDLIST_H
 
 #include <stdlib.h> /* for size_t definition */
+#include "Thread.h"
 
 /*BE
 defm defList(T)
@@ -71,6 +72,7 @@ typedef struct
 				*current;	/**< current element in the list, for iteration */
 	int count;  /**< no of items */
 	size_t size;  /**< heap storage used */
+	mutex_type lock; /**< mutex guarding insert/delete/traversal */
 } List;
 
 void ListZero(List*);

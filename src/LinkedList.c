@@ -41,9 +41,15 @@ static int ListUnlink(List* aList, void* content, int(*callback)(void*, void*), 
  */
 void ListZero(List* newl)
 {
-	memset(newl, '\0', sizeof(List));
+	memset(newl, '\0', sizeof(List) - sizeof(newl->lock));
 }
 
+static int ListCreateMutex(List* aList)
+{
+	int rc;
+	aList->lock = Thread_create_mutex(&rc);
+	return rc;
+}
 
 /**
  * Allocates and initializes a new list structure.
@@ -52,8 +58,14 @@ void ListZero(List* newl)
 List* ListInitialize(void)
 {
 	List* newl = malloc(sizeof(List));
-	if (newl)
-		ListZero(newl);
+	if (newl) {
+		int rc = ListCreateMutex(newl);
+		if(rc < 0) {
+			free(newl);
+			newl = NULL;
+		} else
+			ListZero(newl);
+	}
 	return newl;
 }
 
@@ -68,6 +80,11 @@ List* ListInitialize(void)
  */
 void ListAppendNoMalloc(List* aList, void* content, ListElement* newel, size_t size)
 { /* for heap use */
+	if(!aList->lock)
+		ListCreateMutex(aList);
+
+	Thread_lock_mutex(aList->lock);
+
 	newel->content = content;
 	newel->next = NULL;
 	newel->prev = aList->last;
@@ -78,6 +95,8 @@ void ListAppendNoMalloc(List* aList, void* content, ListElement* newel, size_t s
 	aList->last = newel;
 	++(aList->count);
 	aList->size += size;
+
+	Thread_unlock_mutex(aList->lock);
 }
 
 
@@ -114,6 +133,11 @@ ListElement* ListInsert(List* aList, void* content, size_t size, ListElement* in
 		ListAppendNoMalloc(aList, content, newel, size);
 	else
 	{
+		if(!aList->lock)
+			ListCreateMutex(aList);
+
+		Thread_lock_mutex(aList->lock);
+
 		newel->content = content;
 		newel->next = index;
 		newel->prev = index->prev;
@@ -126,6 +150,8 @@ ListElement* ListInsert(List* aList, void* content, size_t size, ListElement* in
 
 		++(aList->count);
 		aList->size += size;
+
+		Thread_unlock_mutex(aList->lock);
 	}
 	return newel;
 }
@@ -154,6 +180,11 @@ ListElement* ListFind(List* aList, void* content)
 ListElement* ListFindItem(List* aList, void* content, int(*callback)(void*, void*))
 {
 	ListElement* rc = NULL;
+
+	if(!aList->lock)
+		ListCreateMutex(aList);
+
+	Thread_lock_mutex(aList->lock);
 
 	if (aList->current != NULL && ((callback == NULL && aList->current->content == content) ||
 		   (callback != NULL && callback(aList->current->content, content))))
@@ -185,6 +216,9 @@ ListElement* ListFindItem(List* aList, void* content, int(*callback)(void*, void
 		if (rc != NULL)
 			aList->current = rc;
 	}
+
+	Thread_unlock_mutex(aList->lock);
+
 	return rc;
 }
 
@@ -206,6 +240,11 @@ static int ListUnlink(List* aList, void* content, int(*callback)(void*, void*), 
 
 	if (!ListFindItem(aList, content, callback))
 		return 0; /* false, did not remove item */
+
+	if(!aList->lock)
+		ListCreateMutex(aList);
+
+	Thread_lock_mutex(aList->lock);
 
 	if (aList->current->prev == NULL)
 		/* so this is the first element, and we have to update the "first" pointer */
@@ -232,6 +271,9 @@ static int ListUnlink(List* aList, void* content, int(*callback)(void*, void*), 
 	else
 		aList->current = saved;
 	--(aList->count);
+
+	Thread_unlock_mutex(aList->lock);
+
 	return 1; /* successfully removed item */
 }
 
@@ -268,6 +310,11 @@ int ListRemove(List* aList, void* content)
 void* ListDetachHead(List* aList)
 {
 	void *content = NULL;
+
+	if(!aList->lock)
+		ListCreateMutex(aList);
+
+	Thread_lock_mutex(aList->lock);
 	if (aList->count > 0)
 	{
 		ListElement* first = aList->first;
@@ -282,6 +329,7 @@ void* ListDetachHead(List* aList)
 		free(first);
 		--(aList->count);
 	}
+	Thread_unlock_mutex(aList->lock);
 	return content;
 }
 
@@ -306,6 +354,11 @@ int ListRemoveHead(List* aList)
 void* ListPopTail(List* aList)
 {
 	void* content = NULL;
+
+	if(!aList->lock)
+		ListCreateMutex(aList);
+
+	Thread_lock_mutex(aList->lock);
 	if (aList->count > 0)
 	{
 		ListElement* last = aList->last;
@@ -320,6 +373,7 @@ void* ListPopTail(List* aList)
 		free(last);
 		--(aList->count);
 	}
+	Thread_unlock_mutex(aList->lock);
 	return content;
 }
 
@@ -358,6 +412,10 @@ int ListRemoveItem(List* aList, void* content, int(*callback)(void*, void*))
  */
 void ListEmpty(List* aList)
 {
+	if(!aList->lock)
+		ListCreateMutex(aList);
+
+	Thread_lock_mutex(aList->lock);
 	while (aList->first != NULL)
 	{
 		ListElement* first = aList->first;
@@ -372,6 +430,7 @@ void ListEmpty(List* aList)
 	aList->count = 0;
 	aList->size = 0;
 	aList->current = aList->first = aList->last = NULL;
+	Thread_unlock_mutex(aList->lock);
 }
 
 /**
@@ -381,6 +440,7 @@ void ListEmpty(List* aList)
 void ListFree(List* aList)
 {
 	ListEmpty(aList);
+	Thread_destroy_mutex(aList->lock);
 	free(aList);
 }
 
@@ -391,12 +451,18 @@ void ListFree(List* aList)
  */
 void ListFreeNoContent(List* aList)
 {
+	if(!aList->lock)
+		ListCreateMutex(aList);
+
+	Thread_lock_mutex(aList->lock);
 	while (aList->first != NULL)
 	{
 		ListElement* first = aList->first;
 		aList->first = first->next;
 		free(first);
 	}
+	Thread_unlock_mutex(aList->lock);
+	Thread_destroy_mutex(aList->lock);
 	free(aList);
 }
 
