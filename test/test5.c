@@ -2682,6 +2682,156 @@ int test10(struct Options options)
 	return failures;
 }
 
+/*********************************************************************
+
+Test11: SSL/TLS version verification
+
+*********************************************************************/
+static int test11_connect_state = -1;
+
+void test11OnConnectFailure(void* context, MQTTAsync_failureData* response)
+{
+	AsyncTestClient* client = (AsyncTestClient*) context;
+	MyLog(LOGA_DEBUG, "In test11OnConnectFailure callback, %s",
+			client->clientid);
+
+	assert("This test should not call test11OnConnectFailure. ", 0, "test11OnConnectFailure callback was called\n", 1);
+	test11_connect_state = 0;
+}
+
+void test11OnConnect(void* context, MQTTAsync_successData* response)
+{
+	MyLog(LOGA_DEBUG, "In test11OnConnect callback, context %p", context);
+
+	test11_connect_state = 1;
+}
+
+void test11OnDisconnectFailure(void* context, MQTTAsync_failureData* response)
+{
+	AsyncTestClient* client = (AsyncTestClient*) context;
+	MyLog(LOGA_DEBUG, "In test11OnDisconnectFailure callback, %s",
+			client->clientid);
+
+	assert("This test should not call test11OnDisconnectFailure. ", 0, "test11OnDisconnectFailure callback was called\n", 1);
+	test11_connect_state = 0;
+}
+
+void test11OnDisconnect(void* context, MQTTAsync_successData* response)
+{
+	MyLog(LOGA_DEBUG, "In test11OnDisconnect callback, context %p", context);
+
+	test11_connect_state = 0;
+}
+
+int test11(struct Options options)
+{
+	char* testname = "test11";
+	const int test_tls_versions[] = {
+		MQTT_SSL_VERSION_TLS_1_3,
+		MQTT_SSL_VERSION_TLS_1_2,
+/* 1.1 and 1.0 does not work on debian buster, as it is patched to allow 1.2+ only
+		MQTT_SSL_VERSION_TLS_1_1,
+		MQTT_SSL_VERSION_TLS_1_0,
+*/
+	};
+
+	AsyncTestClient tc =
+	AsyncTestClient_initializer;
+	MQTTAsync c;
+	MQTTAsync_connectOptions opts = MQTTAsync_connectOptions_initializer;
+	MQTTAsync_disconnectOptions disconnect_opts = MQTTAsync_disconnectOptions_initializer;
+	MQTTAsync_SSLOptions sslopts = MQTTAsync_SSLOptions_initializer;
+	int rc = 0;
+
+	failures = 0;
+	MyLog(LOGA_INFO, "Starting test 11 - Force TLS version");
+	fprintf(xml, "<testcase classname=\"test11\" name=\"%s\"", testname);
+	global_start_time = start_clock();
+
+	MQTTAsync_create(&c, options.anon_connection, "test11", MQTTCLIENT_PERSISTENCE_DEFAULT, NULL);
+	assert("good rc from create", rc == MQTTASYNC_SUCCESS, "rc was %d\n", rc);
+	if (rc != MQTTASYNC_SUCCESS)
+		goto exit;
+
+	tc.client = c;
+
+	disconnect_opts.timeout = 100;
+	disconnect_opts.onSuccess = test11OnDisconnect;
+	disconnect_opts.onFailure = test11OnDisconnectFailure;
+
+	opts.keepAliveInterval = 20;
+	opts.cleansession = 1;
+	opts.username = "testuser";
+	opts.password = "testpassword";
+
+	opts.onSuccess = test11OnConnect;
+	opts.onFailure = test11OnConnectFailure;
+	opts.context = &tc;
+
+	opts.ssl = &sslopts;
+	opts.ssl->enabledCipherSuites = "DEFAULT";
+	opts.ssl->enableServerCertAuth = 0;
+
+	rc = MQTTAsync_setCallbacks(c, &tc, NULL, asyncTestMessageArrived,
+			asyncTestOnDeliveryComplete);
+	assert("Good rc from setCallbacks", rc == MQTTASYNC_SUCCESS, "rc was %d", rc);
+
+	for(int i=0; i < ARRAY_SIZE(test_tls_versions); i++) {
+		int detected_version;
+		opts.ssl->sslVersion = test_tls_versions[i];
+		MyLog(LOGA_DEBUG, "Connecting with TLS version %d", opts.ssl->sslVersion);
+
+		test11_connect_state = -1;
+
+		rc = MQTTAsync_connect(c, &opts);
+		assert("Good rc from connect", rc == MQTTCLIENT_SUCCESS, "rc was %d", rc);
+		if (rc != MQTTASYNC_SUCCESS)
+			goto exit;
+
+		// Wait for connect success
+		while (test11_connect_state == -1) {
+#if defined(_WIN32)
+			Sleep(100);
+#else
+			usleep(10000L);
+#endif
+		}
+
+		assert("Connection succeeded", test11_connect_state == 1, "states was %d", test11_connect_state);
+		if (test11_connect_state != 1)
+			goto exit;
+
+		/* Test TLS version */
+		detected_version = MQTTAsync_getSSLVersion(c);
+		assert("Desired TLS version", detected_version == test_tls_versions[i], "version was %d", detected_version);
+		if (detected_version != test_tls_versions[i])
+			goto exit;
+
+		rc = MQTTAsync_disconnect(c, &disconnect_opts);
+		assert("Good rc from disconnect", rc == MQTTASYNC_SUCCESS, "rc was %d", rc);
+		if (rc != MQTTASYNC_SUCCESS)
+			goto exit;
+
+		// Wait for disconnect success
+		while (test11_connect_state != 0) {
+#if defined(_WIN32)
+			Sleep(100);
+#else
+			usleep(10000L);
+#endif
+		}
+
+	}
+
+exit:
+	MQTTAsync_destroy(&c);
+	MyLog(LOGA_INFO, "%s: test %s. %d tests run, %d failures.",
+			(failures == 0) ? "passed" : "failed", testname, tests, failures);
+	write_test_result();
+	return failures;
+
+}
+
 
 void handleTrace(enum MQTTASYNC_TRACE_LEVELS level, char* message)
 {
@@ -2695,7 +2845,7 @@ int main(int argc, char** argv)
 	int rc = 0;
 	int (*tests[])() =
             { NULL, test1, test2a, test2b, test2c, test2d, test3a, test3b, test4, /* test5a,
-			test5b, test5c, */ test6, test7, test8, test9, test10, test2e };
+			test5b, test5c, */ test6, test7, test8, test9, test10, test2e, test11 };
 
 	xml = fopen("TEST-test5.xml", "w");
 	fprintf(xml, "<testsuite name=\"test5\" tests=\"%d\">\n", (int)ARRAY_SIZE(tests) - 1);

@@ -1027,6 +1027,7 @@ typedef struct
 #define MQTT_SSL_VERSION_TLS_1_0 1
 #define MQTT_SSL_VERSION_TLS_1_1 2
 #define MQTT_SSL_VERSION_TLS_1_2 3
+#define MQTT_SSL_VERSION_TLS_1_3 4
 
 /**
 * MQTTAsync_sslProperties defines the settings to establish an SSL/TLS connection using the
@@ -1084,7 +1085,8 @@ typedef struct
     int enableServerCertAuth;
 
     /** The SSL/TLS version to use. Specify one of MQTT_SSL_VERSION_DEFAULT (0),
-    * MQTT_SSL_VERSION_TLS_1_0 (1), MQTT_SSL_VERSION_TLS_1_1 (2) or MQTT_SSL_VERSION_TLS_1_2 (3).
+    * MQTT_SSL_VERSION_TLS_1_0 (1), MQTT_SSL_VERSION_TLS_1_1 (2), MQTT_SSL_VERSION_TLS_1_2 (3)
+    * or MQTT_SSL_VERSION_TLS_1_3 (4)
     * Only used if struct_version is >= 1.
     */
     int sslVersion;
@@ -1473,6 +1475,15 @@ LIBMQTT_API int MQTTAsync_disconnect(MQTTAsync handle, const MQTTAsync_disconnec
   * @return Boolean true if the client is connected, otherwise false.
   */
 LIBMQTT_API int MQTTAsync_isConnected(MQTTAsync handle);
+
+/**
+  * This function allows the client application to get the used SSL/TLS
+  * version after a successful connect
+  * @param handle A valid client handle from a successful call to
+  * MQTTAsync_create().
+  * @return ::MQTT_SSL_VERSION_TLS_1_0 to MQTT_SSL_VERSION_TLS_1_3, or -1 on error
+  */
+LIBMQTT_API int MQTTAsync_getSSLVersion(MQTTAsync handle);
 
 
 /**

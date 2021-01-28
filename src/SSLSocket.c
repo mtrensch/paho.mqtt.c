@@ -266,11 +266,14 @@ char* SSLSocket_get_version_string(int version)
 		{ SSL2_VERSION, "SSL 2.0" },
 		{ SSL3_VERSION, "SSL 3.0" },
 		{ TLS1_VERSION, "TLS 1.0" },
-#if defined(TLS2_VERSION)
-		{ TLS2_VERSION, "TLS 1.1" },
+#if defined(TLS1_1_VERSION)
+		{ TLS1_1_VERSION, "TLS 1.1" },
 #endif
-#if defined(TLS3_VERSION)
-		{ TLS3_VERSION, "TLS 1.2" },
+#if defined(TLS1_2_VERSION)
+		{ TLS1_2_VERSION, "TLS 1.2" },
+#endif
+#if defined(TLS1_3_VERSION)
+		{ TLS1_3_VERSION, "TLS 1.3" },
 #endif
 	};
 
@@ -550,11 +553,41 @@ int SSLSocket_createContext(networkHandles* net, MQTTClient_SSLOptions* opts)
 	FUNC_ENTRY;
 	if (net->ctx == NULL)
 	{
-#if (OPENSSL_VERSION_NUMBER >= 0x10100000L)
-		net->ctx = SSL_CTX_new(TLS_client_method());
-#else
 		int sslVersion = MQTT_SSL_VERSION_DEFAULT;
 		if (opts->struct_version >= 1) sslVersion = opts->sslVersion;
+#if (OPENSSL_VERSION_NUMBER >= 0x10100000L)
+		net->ctx = SSL_CTX_new(TLS_client_method());
+		switch (sslVersion)
+		{
+		case MQTT_SSL_VERSION_DEFAULT:
+		default:
+			break;
+#if defined(TLS1_VERSION)
+		case MQTT_SSL_VERSION_TLS_1_0:
+			SSL_CTX_set_min_proto_version(net->ctx, TLS1_VERSION);
+			SSL_CTX_set_max_proto_version(net->ctx, TLS1_VERSION);
+			break;
+#endif
+#if defined(TLS1_1_VERSION)
+		case MQTT_SSL_VERSION_TLS_1_1:
+			SSL_CTX_set_min_proto_version(net->ctx, TLS1_1_VERSION);
+			SSL_CTX_set_max_proto_version(net->ctx, TLS1_1_VERSION);
+			break;
+#endif
+#if defined(TLS1_2_VERSION)
+		case MQTT_SSL_VERSION_TLS_1_2:
+			SSL_CTX_set_min_proto_version(net->ctx, TLS1_2_VERSION);
+			SSL_CTX_set_max_proto_version(net->ctx, TLS1_2_VERSION);
+			break;
+#endif
+#if defined(TLS1_3_VERSION)
+		case MQTT_SSL_VERSION_TLS_1_3:
+			SSL_CTX_set_min_proto_version(net->ctx, TLS1_3_VERSION);
+			SSL_CTX_set_max_proto_version(net->ctx, TLS1_3_VERSION);
+			break;
+#endif
+		}
+#else
 /* SSL_OP_NO_TLSv1_1 is defined in ssl.h if the library version supports TLSv1.1.
  * OPENSSL_NO_TLS1 is defined in opensslconf.h or on the compiler command line
  * if TLS1.x was removed at OpenSSL library build time via Configure options.

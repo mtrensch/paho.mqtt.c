@@ -119,9 +119,14 @@ char* test_map[] =
   "3b",        // 8
   "4s",        // 9
   "4m",        // 10
-  "5a",        // 11
-  "5b",        // 12
-  "5c",        // 13
+  "6",         // 11
+  "2e_s",      // 12
+  "7",         // 13
+/*
+  "5a",
+  "5b",
+  "5c",
+*/
 };
 
 
@@ -1579,7 +1584,6 @@ exit:
 	return failures;
 }
 
-
 /*********************************************************************
 
 Test6: TLS-PSK - client and server has a common pre-shared key
@@ -1656,6 +1660,82 @@ exit:
 	return failures;
 }
 
+/*********************************************************************
+
+Test7: SSL/TLS version verification
+
+*********************************************************************/
+
+int test7(struct Options options)
+{
+	char* testname = "test7";
+	char* test_topic = "C client SSL test7";
+	const int test_tls_versions[] = {
+		MQTT_SSL_VERSION_TLS_1_3,
+		MQTT_SSL_VERSION_TLS_1_2,
+/* 1.1 and 1.0 does not work on debian buster, as it is patched to allow 1.2+ only
+		MQTT_SSL_VERSION_TLS_1_1,
+		MQTT_SSL_VERSION_TLS_1_0,
+*/
+	};
+	MQTTClient c;
+	MQTTClient_connectOptions opts = MQTTClient_connectOptions_initializer;
+	MQTTClient_SSLOptions sslopts = MQTTClient_SSLOptions_initializer;
+	int rc = 0;
+
+	failures = 0;
+	MyLog(LOGA_INFO, "Starting SSL test 7 - Force TLS version");
+	fprintf(xml, "<testcase classname=\"test3\" name=\"test 7\"");
+	global_start_time = start_clock();
+
+	rc = MQTTClient_create(&c, options.anon_connection, "test7", MQTTCLIENT_PERSISTENCE_DEFAULT, persistenceStore);
+	if (!(assert("good rc from create", rc == MQTTCLIENT_SUCCESS, "rc was %d\n", rc)))
+		goto exit;
+
+	opts.keepAliveInterval = 20;
+	opts.cleansession = 1;
+	opts.username = "testuser";
+	opts.password = "testpassword";
+	if (options.haconnections != NULL)
+	{
+		opts.serverURIs = options.haconnections;
+		opts.serverURIcount = options.hacount;
+	}
+
+	opts.ssl = &sslopts;
+	//opts.ssl->trustStore = /*file of certificates trusted by client*/
+	//opts.ssl->keyStore = options.client_key_file;  /*file of certificate for client to present to server*/
+	//if (options.client_key_pass != NULL) opts.ssl->privateKeyPassword = options.client_key_pass;
+	opts.ssl->enabledCipherSuites = "DEFAULT";
+	opts.ssl->enableServerCertAuth = 0;
+
+	for(int i=0; i < ARRAY_SIZE(test_tls_versions); i++) {
+		int detected_version;
+		opts.ssl->sslVersion = test_tls_versions[i];
+		MyLog(LOGA_DEBUG, "Connecting with TLS version %d", opts.ssl->sslVersion);
+
+		rc = MQTTClient_connect(c, &opts);
+		if (!(assert("Good rc from connect", rc == MQTTCLIENT_SUCCESS, "rc was %d", rc)))
+			goto exit;
+
+		/* Test TLS version */
+		detected_version = MQTTClient_getSSLVersion(c);
+		if (!(assert("Desired TLS version", detected_version == test_tls_versions[i], "version was %d", detected_version)))
+			goto exit;
+
+		rc = MQTTClient_disconnect(c, 100);
+		if (!(assert("Good rc from disconnect", rc == MQTTCLIENT_SUCCESS, "rc was %d", rc)))
+			goto exit;
+	}
+
+exit:
+	MQTTClient_destroy(&c);
+	MyLog(LOGA_INFO, "%s: test %s. %d tests run, %d failures.",
+			(failures == 0) ? "passed" : "failed", testname, tests, failures);
+	write_test_result();
+	return failures;
+}
+
 
 typedef struct
 {
@@ -1705,7 +1785,7 @@ int main(int argc, char** argv)
 	int* numtests = &tests;
 	int rc = 0;
  	int (*tests[])() = {NULL, test1, test2a_s, test2a_m, test2b, test2c, test3a_s, test3a_m, test3b, test4_s, test4_m, test6,
- 	  test2e_s /*test5a, test5b,test5c */};
+ 	  test2e_s, test7 /*test5a, test5b,test5c */};
 	//MQTTClient_nameValue* info;
 
 	xml = fopen("TEST-test3.xml", "w");

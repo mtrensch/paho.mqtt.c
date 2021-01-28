@@ -1830,3 +1830,36 @@ static void MQTTAsync_freeServerURIs(MQTTAsyncs* m)
 		free(m->serverURIs);
 	m->serverURIs = NULL;
 }
+
+int MQTTAsync_getSSLVersion(MQTTAsync handle)
+{
+        int rc = -1;
+#if defined(OPENSSL)
+        MQTTAsyncs* m = handle;
+
+        FUNC_ENTRY;
+
+        if(m->c->net.ssl != NULL)
+        {
+                rc = SSL_version(m->c->net.ssl);
+                switch(rc)
+                {
+                case TLS1_VERSION:
+                        rc = MQTT_SSL_VERSION_TLS_1_0;
+                        break;
+                case TLS1_1_VERSION:
+                        rc = MQTT_SSL_VERSION_TLS_1_1;
+                        break;
+                case TLS1_2_VERSION:
+                        rc = MQTT_SSL_VERSION_TLS_1_2;
+                        break;
+                case TLS1_3_VERSION:
+                        rc = MQTT_SSL_VERSION_TLS_1_3;
+                        break;
+                }
+        }
+
+        FUNC_EXIT;
+#endif
+        return rc;
+}
